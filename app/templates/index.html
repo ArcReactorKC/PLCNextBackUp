@@ -5,13 +5,54 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PLCNext Backup</title>
   <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f7f8;
+      --text: #1a1a1a;
+      --muted: #555;
+      --surface: #ffffff;
+      --border: #d0d0d0;
+      --hover: #f2f2f2;
+      --button-bg: #1d6cf2;
+      --button-text: #ffffff;
+      --button-secondary-bg: #efefef;
+      --button-secondary-text: #1a1a1a;
+    }
+    [data-theme="dark"] {
+      --bg: #14161a;
+      --text: #f2f2f2;
+      --muted: #b8b8b8;
+      --surface: #1f2329;
+      --border: #3a3f47;
+      --hover: #2c3138;
+      --button-bg: #4c8dff;
+      --button-text: #0f1115;
+      --button-secondary-bg: #2c3138;
+      --button-secondary-text: #f2f2f2;
+    }
     body {
       font-family: Arial, sans-serif;
       margin: 2rem;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .theme-toggle {
+      border: 1px solid var(--border);
+      background: var(--button-secondary-bg);
+      color: var(--button-secondary-text);
+      border-radius: 999px;
+      font-weight: 600;
     }
     .device-row {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1.2fr auto;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 0.8fr 1.2fr auto;
       gap: 1rem;
       margin-bottom: 1rem;
       align-items: end;
@@ -25,19 +66,35 @@
       width: 100%;
       padding: 0.4rem;
       box-sizing: border-box;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 4px;
     }
     button {
       padding: 0.6rem 1rem;
       cursor: pointer;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: var(--button-bg);
+      color: var(--button-text);
+    }
+    button.remove,
+    button[type="button"]#add-device,
+    .browse-toolbar button {
+      background: var(--button-secondary-bg);
+      color: var(--button-secondary-text);
+      border-color: var(--border);
     }
     #device-list {
       margin-top: 2rem;
     }
     .device-card {
       padding: 0.8rem;
-      border: 1px solid #ccc;
+      border: 1px solid var(--border);
       margin-bottom: 0.6rem;
       border-radius: 4px;
+      background: var(--surface);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -60,20 +117,21 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 0.85rem;
       padding: 0.35rem 0.5rem;
-      border: 1px solid #ccc;
+      border: 1px solid var(--border);
       border-radius: 4px;
-      background: #fafafa;
+      background: var(--surface);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       max-width: 420px;
     }
     .browse-list {
-      border: 1px solid #ccc;
+      border: 1px solid var(--border);
       padding: 0.4rem;
       max-height: 180px;
       overflow-y: auto;
       border-radius: 4px;
+      background: var(--surface);
     }
     .browse-item {
       padding: 0.2rem 0.3rem;
@@ -81,7 +139,7 @@
       user-select: none;
     }
     .browse-item:hover {
-      background: #f2f2f2;
+      background: var(--hover);
     }
     .browse-dir {
       font-weight: bold;
@@ -93,14 +151,17 @@
     }
     .hint {
       font-size: 0.85rem;
-      color: #555;
+      color: var(--muted);
       margin-top: 0.25rem;
     }
   </style>
 </head>
 <body>
-  <h1>PLCNext Backup Scheduler</h1>
-  <p>Enter a PLC device label, IP address, SFTP credentials, and backup interval. Use “Add device” to include multiple devices.</p>
+  <div class="page-header">
+    <h1>PLCNext Backup Scheduler</h1>
+    <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="false">Dark mode</button>
+  </div>
+  <p>Enter a PLC device label, IP address, FTP/SFTP credentials, and backup interval. Use “Add device” to include multiple devices.</p>
 
   <form id="device-form">
     <div id="device-container"></div>
@@ -115,6 +176,32 @@
 
   <script id="interval-data" type="application/json">{{ intervals|tojson }}</script>
   <script>
+    const themeToggle = document.getElementById('theme-toggle');
+    const themeStorageKey = 'plcnext-theme';
+
+    function getPreferredTheme() {
+      const stored = localStorage.getItem(themeStorageKey);
+      if (stored === 'light' || stored === 'dark') {
+        return stored;
+      }
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const isDark = theme === 'dark';
+      themeToggle.textContent = isDark ? 'Light mode' : 'Dark mode';
+      themeToggle.setAttribute('aria-pressed', String(isDark));
+    }
+
+    applyTheme(getPreferredTheme());
+
+    themeToggle.addEventListener('click', () => {
+      const nextTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      localStorage.setItem(themeStorageKey, nextTheme);
+      applyTheme(nextTheme);
+    });
+
     const container = document.getElementById('device-container');
     const fallbackIntervals = ['1 hour', '1 day', '1 week', '1 month'];
     let intervals = fallbackIntervals;
@@ -158,6 +245,32 @@
         if (interval === value) option.selected = true;
         select.appendChild(option);
       });
+      wrapper.append(label, select);
+      return wrapper;
+    }
+
+    function createProtocolField(value) {
+      const wrapper = document.createElement('div');
+      const label = document.createElement('label');
+      label.textContent = 'Protocol *';
+      const select = document.createElement('select');
+      select.name = 'protocol';
+      select.required = true;
+
+      const protocolOptions = [
+        { value: 'sftp', label: 'SFTP (port 22)' },
+        { value: 'ftp', label: 'FTP (port 21)' },
+      ];
+
+      const selectedValue = value ? String(value).toLowerCase() : 'sftp';
+      protocolOptions.forEach(optionData => {
+        const option = document.createElement('option');
+        option.value = optionData.value;
+        option.textContent = optionData.label;
+        if (optionData.value === selectedValue) option.selected = true;
+        select.appendChild(option);
+      });
+
       wrapper.append(label, select);
       return wrapper;
     }
@@ -210,9 +323,10 @@
 
       row.appendChild(createInputField('Device label *', 'text', 'label', device.label));
       row.appendChild(createInputField('PLC IP address *', 'text', 'ip', device.ip));
-      row.appendChild(createInputField('SFTP username *', 'text', 'username', device.username));
-      row.appendChild(createInputField('SFTP password *', 'password', 'password', device.password));
+      row.appendChild(createInputField('Username *', 'text', 'username', device.username));
+      row.appendChild(createInputField('Password *', 'password', 'password', device.password));
       row.appendChild(createSelectField('Backup interval *', 'interval', device.interval));
+      row.appendChild(createProtocolField(device.protocol));
 
       // Paths textarea
       row.appendChild(createPathsField(device.paths));
@@ -269,6 +383,7 @@
         const ip = row.querySelector('input[name="ip"]').value.trim();
         const username = row.querySelector('input[name="username"]').value.trim();
         const password = row.querySelector('input[name="password"]').value;
+        const protocol = row.querySelector('select[name="protocol"]').value;
 
         if (!ip || !username || !password) {
           browseList.textContent = 'Enter IP/username/password first.';
@@ -288,6 +403,7 @@
               username,
               password,
               path: path,
+              protocol,
             }),
           });
 
@@ -300,6 +416,11 @@
           const isRoot = currentBrowsePath === '/' || currentBrowsePath === '';
           upButton.disabled = isRoot;
           selectCurrentButton.disabled = false;
+
+          if (payload.message) {
+            browseList.textContent = payload.message;
+            return;
+          }
 
           if (!payload.entries || !payload.entries.length) {
             browseList.textContent = 'No readable entries found in this folder.';
@@ -384,7 +505,9 @@
 
         const nextText = formatNextBackup(device.next_backup);
 
-        info.textContent = `${device.label} (${device.ip}) — ${device.username} — ${device.interval} | ${nextText}${pathsSummary}`;
+        const protocolLabel = (device.protocol || 'sftp').toUpperCase();
+
+        info.textContent = `${device.label} (${device.ip}) — ${device.username} — ${device.interval} — ${protocolLabel} | ${nextText}${pathsSummary}`;
 
         const actions = document.createElement('div');
 
@@ -442,16 +565,17 @@
     document.getElementById('device-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       const rows = container.querySelectorAll('.device-row');
-      const devices = Array.from(rows).map(row => ({
-        label: row.querySelector('input[name="label"]').value,
-        ip: row.querySelector('input[name="ip"]').value,
-        username: row.querySelector('input[name="username"]').value,
-        password: row.querySelector('input[name="password"]').value,
-        interval: row.querySelector('select[name="interval"]').value,
-        paths: row.querySelector('textarea[name="paths"]').value
-          .split('\n')
-          .map(path => path.trim())
-          .filter(Boolean),
+        const devices = Array.from(rows).map(row => ({
+          label: row.querySelector('input[name="label"]').value,
+          ip: row.querySelector('input[name="ip"]').value,
+          username: row.querySelector('input[name="username"]').value,
+          password: row.querySelector('input[name="password"]').value,
+          interval: row.querySelector('select[name="interval"]').value,
+          protocol: row.querySelector('select[name="protocol"]').value,
+          paths: row.querySelector('textarea[name="paths"]').value
+            .split('\n')
+            .map(path => path.trim())
+            .filter(Boolean),
       }));
 
       await fetch('/devices', {
