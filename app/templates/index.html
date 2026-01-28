@@ -197,6 +197,13 @@
       }
     }
 
+    function formatNextBackup(isoString) {
+      if (!isoString) return 'Next: (not scheduled)';
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return 'Next: (unknown)';
+      return `Next: ${d.toLocaleString()}`;
+    }
+
     function createRow(device = {}) {
       const row = document.createElement('div');
       row.className = 'device-row';
@@ -326,8 +333,7 @@
               item.addEventListener('click', () => loadDirectory(fullPath));
               item.addEventListener('dblclick', () => addPathToTextarea(row, fullPath));
             } else {
-              item.title = 'File (read-only in browser)';
-              // Optional: allow double-click to add a specific file path
+              item.title = 'File (double-click to add path)';
               item.addEventListener('dblclick', () => addPathToTextarea(row, fullPath));
             }
 
@@ -371,10 +377,14 @@
         card.className = 'device-card';
 
         const info = document.createElement('div');
+
         const pathsSummary = (device.paths && device.paths.length)
           ? ` | Paths: ${device.paths.length}`
           : ' | Paths: default';
-        info.textContent = `${device.label} (${device.ip}) — ${device.username} — ${device.interval}${pathsSummary}`;
+
+        const nextText = formatNextBackup(device.next_backup);
+
+        info.textContent = `${device.label} (${device.ip}) — ${device.username} — ${device.interval} | ${nextText}${pathsSummary}`;
 
         const actions = document.createElement('div');
 
@@ -383,6 +393,8 @@
         backupButton.textContent = 'Backup now';
         backupButton.addEventListener('click', async () => {
           await fetch(`/devices/${index}/backup`, { method: 'POST' });
+          // Refresh list so next run time stays accurate (optional but nice)
+          await fetchDevices();
         });
 
         const removeButton = document.createElement('button');
