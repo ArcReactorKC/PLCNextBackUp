@@ -45,7 +45,7 @@
   <p>Enter a PLC device label, IP address, SFTP credentials, and backup interval. Use “Add device” to include multiple devices.</p>
 
   <form id="device-form">
-    <div id="device-container" data-intervals='{{ intervals|tojson }}'></div>
+    <div id="device-container"></div>
     <button type="button" id="add-device">Add device</button>
     <button type="submit">Save devices</button>
   </form>
@@ -56,20 +56,12 @@
   </div>
 
   <script>
+    const intervals = {{ intervals|tojson }};
     const container = document.getElementById('device-container');
-    const fallbackIntervals = ['1 hour', '1 day', '1 week', '1 month'];
-    let intervals = fallbackIntervals;
-    try {
-      if (container.dataset.intervals) {
-        intervals = JSON.parse(container.dataset.intervals);
-      }
-    } catch (error) {
-      console.error('Failed to parse intervals; using defaults.', error);
-      intervals = fallbackIntervals;
-    }
     const addButton = document.getElementById('add-device');
     const deviceCards = document.getElementById('device-cards');
 
+ codex/create-docker-with-plc-backup-interface-zc6dfu
     function createInputField(labelText, type, name, value) {
       const wrapper = document.createElement('div');
       const label = document.createElement('label');
@@ -119,6 +111,39 @@
       removeButton.addEventListener('click', () => row.remove());
       actions.appendChild(removeButton);
       row.appendChild(actions);
+
+    function createRow(device = {}) {
+      const row = document.createElement('div');
+      row.className = 'device-row';
+      row.innerHTML = `
+        <div>
+          <label>Device label *</label>
+          <input type="text" name="label" required value="${device.label || ''}" />
+        </div>
+        <div>
+          <label>PLC IP address *</label>
+          <input type="text" name="ip" required value="${device.ip || ''}" />
+        </div>
+        <div>
+          <label>SFTP username *</label>
+          <input type="text" name="username" required value="${device.username || ''}" />
+        </div>
+        <div>
+          <label>SFTP password *</label>
+          <input type="password" name="password" required value="${device.password || ''}" />
+        </div>
+        <div>
+          <label>Backup interval *</label>
+          <select name="interval" required>
+            ${intervals.map(interval => `<option value="${interval}" ${device.interval === interval ? 'selected' : ''}>${interval}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <button type="button" class="remove">Remove</button>
+        </div>
+      `;
+      row.querySelector('.remove').addEventListener('click', () => row.remove());
+ main
       return row;
     }
 
@@ -128,6 +153,7 @@
         deviceCards.innerHTML = '<p>No devices configured.</p>';
         return;
       }
+ codex/create-docker-with-plc-backup-interface-zc6dfu
       devices.forEach((device, index) => {
         const card = document.createElement('div');
         card.className = 'device-card';
@@ -149,6 +175,32 @@
         });
         actions.append(backupButton, removeButton);
         card.append(info, actions);
+
+ codex/create-docker-with-plc-backup-interface-8tvd1f
+      devices.forEach((device, index) => {
+        const card = document.createElement('div');
+        card.className = 'device-card';
+        card.innerHTML = `
+          <div><strong>${device.label}</strong> (${device.ip}) — ${device.username} — ${device.interval}</div>
+          <div>
+            <button type="button" data-action="backup" data-index="${index}">Backup now</button>
+            <button type="button" data-action="remove" data-index="${index}">Remove</button>
+          </div>
+        `;
+        card.querySelector('[data-action="backup"]').addEventListener('click', async () => {
+          await fetch(`/devices/${index}/backup`, { method: 'POST' });
+        });
+        card.querySelector('[data-action="remove"]').addEventListener('click', async () => {
+          await fetch(`/devices/${index}`, { method: 'DELETE' });
+          await fetchDevices();
+        });
+
+      devices.forEach(device => {
+        const card = document.createElement('div');
+        card.className = 'device-card';
+        card.textContent = `${device.label} (${device.ip}) — ${device.username} — ${device.interval}`;
+ main
+ main
         deviceCards.appendChild(card);
       });
     }
@@ -172,6 +224,14 @@
         if (!container.childElementCount) {
           container.appendChild(createRow());
         }
+      const response = await fetch('/devices');
+      const devices = await response.json();
+      renderDevices(devices);
+      container.innerHTML = '';
+      if (devices.length) {
+        devices.forEach(device => container.appendChild(createRow(device)));
+      } else {
+        container.appendChild(createRow());
       }
     }
 
