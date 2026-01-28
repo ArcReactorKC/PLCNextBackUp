@@ -72,7 +72,10 @@ def sftp_download_tree(sftp, remote_dir, local_dir: Path):
     try:
         entries = sftp.listdir_attr(remote_dir)
     except FileNotFoundError:
-        # Directory missing on target; skip
+        print(f"[SFTP] Missing remote dir: {remote_dir}")
+        return
+    except Exception as e:
+        print(f"[SFTP] Cannot list dir {remote_dir}: {e}")
         return
 
     for entry in entries:
@@ -83,11 +86,20 @@ def sftp_download_tree(sftp, remote_dir, local_dir: Path):
         remote_path = f"{remote_dir.rstrip('/')}/{name}"
         local_path = local_dir / name
 
-        if stat.S_ISDIR(entry.st_mode):
-            sftp_download_tree(sftp, remote_path, local_path)
-        else:
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            sftp.get(remote_path, str(local_path))
+        try:
+            if stat.S_ISDIR(entry.st_mode):
+                sftp_download_tree(sftp, remote_path, local_path)
+            else:
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                sftp.get(remote_path, str(local_path))
+        except PermissionError as e:
+            print(f"[SFTP] Permission denied: {remote_path} ({e})")
+        except OSError as e:
+            # This is the one you're hitting (often "Failure")
+            print(f"[SFTP] Read failed: {remote_path} ({e})")
+        except Exception as e:
+            print(f"[SFTP] Error on {remote_path}: {e}")
+
 
 
 def create_backup(device: dict):
