@@ -206,6 +206,24 @@
     }
 
     async function fetchDevices() {
+      try {
+        const response = await fetch('/devices');
+        if (!response.ok) {
+          throw new Error(`Device load failed: ${response.status}`);
+        }
+        const devices = await response.json();
+        renderDevices(devices);
+        container.innerHTML = '';
+        if (devices.length) {
+          devices.forEach(device => container.appendChild(createRow(device)));
+        } else if (!container.childElementCount) {
+          container.appendChild(createRow());
+        }
+      } catch (error) {
+        console.error(error);
+        if (!container.childElementCount) {
+          container.appendChild(createRow());
+        }
       const response = await fetch('/devices');
       const devices = await response.json();
       renderDevices(devices);
@@ -239,6 +257,9 @@
       await fetchDevices();
     });
 
+    if (!container.childElementCount) {
+      container.appendChild(createRow());
+    }
     fetchDevices();
   </script>
 </body>
