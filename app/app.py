@@ -6,10 +6,14 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+import paramiko
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from flask import Flask, jsonify, render_template, request
-import paramiko
+
+# -------------------------
+# Configuration
+# -------------------------
 
 INTERVAL_SECONDS = {
     "1 hour": 60 * 60,
@@ -26,14 +30,23 @@ PLC_DIRECTORIES = [
 ]
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
-DEVICE_DB = Path(os.getenv("DEVICE_DB", DATA_DIR / "devices.json"))
+DEVICE_DB = Path(os.getenv("DEVICE_DB", str(DATA_DIR / "devices.json")))
 BACKUP_OUTPUT_DIR = Path(os.getenv("BACKUP_OUTPUT_DIR", "/backups"))
+SFTP_PORT = int(os.getenv("SFTP_PORT", "22"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 BACKUP_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# -------------------------
+# App + Scheduler
+# -------------------------
+
 app = Flask(__name__)
 scheduler = BackgroundScheduler()
+
+# -------------------------
+# Persistence
+# -------------------------
 
 
 def load_devices():
@@ -49,57 +62,102 @@ def save_devices(devices):
         json.dump(devices, handle, indent=2)
 
 
-def sftp_download_tree(sftp, remote_dir, local_dir):
+# -------------------------
+# Backup logic (SFTP)
+# -------------------------
+
+
+def sftp_download_tree(sftp, remote_dir, local_dir: Path):
     local_dir.mkdir(parents=True, exist_ok=True)
     try:
         entries = sftp.listdir_attr(remote_dir)
     except FileNotFoundError:
+        print(f"[SFTP] Missing remote dir: {remote_dir}")
+        return
+    except Exception as e:
+        print(f"[SFTP] Cannot list dir {remote_dir}: {e}")
         return
 
     for entry in entries:
         name = entry.filename
         if name in (".", ".."):
             continue
+
         remote_path = f"{remote_dir.rstrip('/')}/{name}"
         local_path = local_dir / name
-        if stat.S_ISDIR(entry.st_mode):
-            sftp_download_tree(sftp, remote_path, local_path)
-        else:
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            sftp.get(remote_path, str(local_path))
+
+        try:
+            if stat.S_ISDIR(entry.st_mode):
+                sftp_download_tree(sftp, remote_path, local_path)
+            else:
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                sftp.get(remote_path, str(local_path))
+        except PermissionError as e:
+            print(f"[SFTP] Permission denied: {remote_path} ({e})")
+        except OSError as e:
+            # This is the one you're hitting (often "Failure")
+            print(f"[SFTP] Read failed: {remote_path} ({e})")
+        except Exception as e:
+            print(f"[SFTP] Error on {remote_path}: {e}")
 
 
-def create_backup(device):
+
+def create_backup(device: dict):
     label = device["label"]
     ip_address = device["ip"]
     username = device["username"]
     password = device["password"]
+
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     folder_name = f"{label}-{timestamp}"
+
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir) / folder_name
         temp_path.mkdir(parents=True, exist_ok=True)
-        transport = paramiko.Transport((ip_address, 22))
-        transport.connect(username=username, password=password)
-        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        # Use SSHClient so we can automatically accept new/unknown host keys
+        # (equivalent to FileZilla's "Always trust this host")
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        ssh.connect(
+            hostname=ip_address,
+            port=SFTP_PORT,
+            username=username,
+            password=password,
+            timeout=10,
+        )
+
+        sftp = ssh.open_sftp()
+
         try:
-            directories = device.get("paths") or PLC_DIRECTORIES
-            for remote_dir in directories:
+            for remote_dir in PLC_DIRECTORIES:
                 target_dir = temp_path / remote_dir.strip("/")
                 sftp_download_tree(sftp, remote_dir, target_dir)
         finally:
-            sftp.close()
-            transport.close()
-        zip_path = BACKUP_OUTPUT_DIR / f"{folder_name}.zip"
-        shutil.make_archive(zip_path.with_suffix(""), "zip", temp_path)
+            try:
+                sftp.close()
+            finally:
+                ssh.close()
+
+        # shutil.make_archive wants a base name without extension
+        base_name = str((BACKUP_OUTPUT_DIR / folder_name).with_suffix(""))
+        shutil.make_archive(base_name, "zip", temp_path)
 
 
-def schedule_device(device):
-    interval = device["interval"]
+# -------------------------
+# Scheduling
+# -------------------------
+
+
+def schedule_device(device: dict):
+    interval = device.get("interval")
     seconds = INTERVAL_SECONDS.get(interval)
     if not seconds:
         return
+
     job_id = f"backup-{device['label']}-{device['ip']}"
+
     scheduler.add_job(
         create_backup,
         trigger=IntervalTrigger(seconds=seconds),
@@ -115,6 +173,11 @@ def refresh_schedule():
         schedule_device(device)
 
 
+# -------------------------
+# Routes
+# -------------------------
+
+
 @app.route("/")
 def index():
     return render_template("index.html", intervals=sorted(INTERVAL_SECONDS.keys()))
@@ -127,6 +190,7 @@ def devices():
 
     payload = request.get_json(silent=True) or {}
     devices_payload = payload.get("devices", [])
+
     cleaned_devices = []
     for device in devices_payload:
         label = str(device.get("label", "")).strip()
@@ -134,6 +198,7 @@ def devices():
         interval = str(device.get("interval", "")).strip()
         username = str(device.get("username", "")).strip()
         password = str(device.get("password", "")).strip()
+
         if (
             not label
             or not ip_address
@@ -142,10 +207,7 @@ def devices():
             or not password
         ):
             continue
-        paths = device.get("paths") or []
-        cleaned_paths = [
-            str(path).strip() for path in paths if str(path).strip()
-        ]
+
         cleaned_devices.append(
             {
                 "label": label,
@@ -153,7 +215,6 @@ def devices():
                 "interval": interval,
                 "username": username,
                 "password": password,
-                "paths": cleaned_paths,
             }
         )
 
@@ -163,53 +224,32 @@ def devices():
 
 
 @app.route("/devices/<int:device_index>", methods=["DELETE"])
-def delete_device(device_index):
-    devices = load_devices()
-    if device_index < 0 or device_index >= len(devices):
+def delete_device(device_index: int):
+    devices_list = load_devices()
+    if device_index < 0 or device_index >= len(devices_list):
         return jsonify({"error": "Device not found"}), 404
-    devices.pop(device_index)
-    save_devices(devices)
+
+    devices_list.pop(device_index)
+    save_devices(devices_list)
     refresh_schedule()
     return jsonify({"status": "deleted"})
 
 
 @app.route("/devices/<int:device_index>/backup", methods=["POST"])
-def backup_device(device_index):
-    devices = load_devices()
-    if device_index < 0 or device_index >= len(devices):
+def backup_device(device_index: int):
+    devices_list = load_devices()
+    if device_index < 0 or device_index >= len(devices_list):
         return jsonify({"error": "Device not found"}), 404
-    create_backup(devices[device_index])
+
+    create_backup(devices_list[device_index])
     return jsonify({"status": "backup_started"})
 
 
-@app.route("/browse", methods=["POST"])
-def browse():
-    payload = request.get_json(silent=True) or {}
-    ip_address = str(payload.get("ip", "")).strip()
-    username = str(payload.get("username", "")).strip()
-    password = str(payload.get("password", "")).strip()
-    path = str(payload.get("path", "")).strip() or "/opt/plcnext/projects"
-    port = int(payload.get("port") or 22)
-    if not ip_address or not username or not password:
-        return jsonify({"path": path, "entries": []})
-    transport = paramiko.Transport((ip_address, port))
-    transport.connect(username=username, password=password)
-    sftp = paramiko.SFTPClient.from_transport(transport)
-    entries = []
-    try:
-        for entry in sftp.listdir_attr(path):
-            entries.append(
-                {"name": entry.filename, "is_dir": stat.S_ISDIR(entry.st_mode)}
-            )
-    except (PermissionError, FileNotFoundError, OSError):
-        entries = []
-    finally:
-        sftp.close()
-        transport.close()
-    return jsonify({"path": path, "entries": entries})
-
+# -------------------------
+# Startup
+# -------------------------
 
 if __name__ == "__main__":
     refresh_schedule()
     scheduler.start()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
