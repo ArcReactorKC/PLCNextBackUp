@@ -311,6 +311,41 @@ def run_backup_and_record(device: dict):
         _update_saved_next_run_time(device)
 
 
+def _parse_iso_datetime(value: Optional[str]):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _update_saved_next_run_time(device: dict):
+    next_run = get_next_run_time_for_device(device)
+    devices_list = load_devices()
+    target_key = _device_key(device)
+    updated = False
+    for saved in devices_list:
+        if _device_key(saved) == target_key:
+            saved["next_run_at"] = next_run
+            updated = True
+            break
+    if updated:
+        save_devices(devices_list)
+
+
+def run_backup_and_record(device: dict):
+    set_backup_status(device, "starting", "Preparing backup")
+    try:
+        create_backup(device, status_callback=set_backup_status)
+        set_backup_status(device, "completed", "Backup complete")
+    except Exception as exc:
+        set_backup_status(device, "failed", str(exc))
+        raise
+    finally:
+        _update_saved_next_run_time(device)
+
+
 def schedule_device(device: dict):
     interval = device.get("interval")
     seconds = INTERVAL_SECONDS.get(interval)
@@ -327,9 +362,8 @@ def schedule_device(device: dict):
         id=_job_id_for_device(device),
         replace_existing=True,
     )
-    next_run_time = getattr(job, "next_run_time", None) if job else None
-    if next_run_time:
-        device["next_run_at"] = next_run_time.isoformat()
+    if job and job.next_run_time:
+        device["next_run_at"] = job.next_run_time.isoformat()
 
 
 def refresh_schedule():
