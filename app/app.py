@@ -236,48 +236,10 @@ def _job_id_for_device(device: dict) -> str:
 
 def get_next_run_time_for_device(device: dict):
     job = scheduler.get_job(_job_id_for_device(device))
-    if not job:
-        return None
-    next_run_time = getattr(job, "next_run_time", None)
-    if not next_run_time:
+    if not job or not job.next_run_time:
         return None
     # ISO format is easy for the browser to parse & display
-    return next_run_time.isoformat()
-
-
-def _parse_iso_datetime(value: Optional[str]):
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-
-def _update_saved_next_run_time(device: dict):
-    next_run = get_next_run_time_for_device(device)
-    devices_list = load_devices()
-    target_key = _device_key(device)
-    updated = False
-    for saved in devices_list:
-        if _device_key(saved) == target_key:
-            saved["next_run_at"] = next_run
-            updated = True
-            break
-    if updated:
-        save_devices(devices_list)
-
-
-def run_backup_and_record(device: dict):
-    set_backup_status(device, "starting", "Preparing backup")
-    try:
-        create_backup(device, status_callback=set_backup_status)
-        set_backup_status(device, "completed", "Backup complete")
-    except Exception as exc:
-        set_backup_status(device, "failed", str(exc))
-        raise
-    finally:
-        _update_saved_next_run_time(device)
+    return job.next_run_time.isoformat()
 
 
 def schedule_device(device: dict):
