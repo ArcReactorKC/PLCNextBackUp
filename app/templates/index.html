@@ -68,7 +68,7 @@
     }
     .device-row {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 0.8fr 1.2fr auto;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 1.2fr auto;
       gap: 1rem;
       margin-bottom: 1rem;
       align-items: end;
@@ -313,6 +313,21 @@
       return wrapper;
     }
 
+    function createMaxBackupsField(value) {
+      const wrapper = document.createElement('div');
+      const label = document.createElement('label');
+      label.textContent = 'Max backups kept *';
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.name = 'max_backups';
+      input.required = true;
+      input.min = '1';
+      input.max = '100';
+      input.value = value || '10';
+      wrapper.append(label, input);
+      return wrapper;
+    }
+
     function createProtocolField(value) {
       const wrapper = document.createElement('div');
       const label = document.createElement('label');
@@ -404,6 +419,7 @@
       row.appendChild(createInputField('Username *', 'text', 'username', device.username));
       row.appendChild(createInputField('Password *', 'password', 'password', device.password));
       row.appendChild(createSelectField('Backup interval *', 'interval', device.interval));
+      row.appendChild(createMaxBackupsField(device.max_backups));
       row.appendChild(createProtocolField(device.protocol));
 
       // Paths textarea
@@ -580,12 +596,13 @@
         const pathsSummary = (device.paths && device.paths.length)
           ? ` | Paths: ${device.paths.length}`
           : ' | Paths: default';
+        const maxBackupsSummary = ` | Keep: ${device.max_backups || 10}`;
 
         const nextText = formatNextBackup(device.next_backup);
 
         const protocolLabel = (device.protocol || 'sftp').toUpperCase();
 
-        info.textContent = `${device.label} (${device.ip}) — ${device.username} — ${device.interval} — ${protocolLabel} | ${nextText}${pathsSummary}`;
+        info.textContent = `${device.label} (${device.ip}) — ${device.username} — ${device.interval} — ${protocolLabel} | ${nextText}${pathsSummary}${maxBackupsSummary}`;
 
         const actions = document.createElement('div');
         actions.className = 'device-actions';
@@ -694,6 +711,7 @@
           username: row.querySelector('input[name="username"]').value,
           password: row.querySelector('input[name="password"]').value,
           interval: row.querySelector('select[name="interval"]').value,
+          max_backups: row.querySelector('input[name="max_backups"]').value,
           protocol: row.querySelector('select[name="protocol"]').value,
           paths: row.querySelector('textarea[name="paths"]').value
             .split('\n')
