@@ -1,6 +1,6 @@
-# PLCNext Backup Scheduler
+# S/FTP Backup Scheduler
 
-This container provides a small web UI to register PLC devices and schedule SFTP backups of key PLCNext directories.
+This container provides a small web UI to register FTP and SFTP devices and schedule backups of the selected directories.
 
 ## Build and run
 
@@ -23,13 +23,6 @@ Open `http://localhost:5000` to add devices.
 - `DEVICE_DB`: Override the path to the devices JSON file.
 - SFTP credentials are stored per device in the web UI and connect on port 22.
 
-## Backup contents
 
-For each device and interval, the container downloads over SFTP:
-
-- `/opt/plcnext/projects/`
-- `/opt/plcnext/apps/`
-- `/opt/plcnext/config/`
-- `/opt/plcnext/data/`
 
 These are stored in a timestamped folder and zipped as `label-YYYY-MM-DD_HH-MM-SS.zip` in the output directory.
