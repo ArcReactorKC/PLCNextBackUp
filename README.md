@@ -5,7 +5,7 @@ This container provides a small web UI to register FTP and SFTP devices and sche
 ## Build and run
 
 ```bash
-docker build -t plcnext-backup .
+docker build -t S-FTPBackUp .
 
 docker run -p 5000:5000 \
   -e BACKUP_OUTPUT_DIR=/backups \
