@@ -1,13 +1,26 @@
+import fcntl
 import json
 import os
 import shutil
 import stat
 import tempfile
 import threading
+import warnings
+from datetime import datetime, timezone
 from ftplib import FTP, all_errors as ftp_errors
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+from cryptography.utils import CryptographyDeprecationWarning
+
+warnings.filterwarnings(
+    "ignore",
+    message=(
+        r".*TripleDES has been moved to cryptography\.hazmat\.decrepit\.ciphers\.algorithms\.TripleDES.*"
+    ),
+    category=CryptographyDeprecationWarning,
+)
 
 import paramiko
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -39,6 +52,8 @@ app.static_folder = "static"
 scheduler = BackgroundScheduler()
 backup_status_lock = threading.Lock()
 backup_status = {}
+_scheduler_lock_handle = None
+_scheduler_started = False
 
 
 def load_devices():
@@ -365,6 +380,29 @@ def refresh_schedule():
     save_devices(devices_list)
 
 
+def start_scheduler():
+    global _scheduler_lock_handle, _scheduler_started
+    if _scheduler_started:
+        return
+    lock_path = DATA_DIR / "scheduler.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = lock_path.open("w")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_file.close()
+        return
+    _scheduler_lock_handle = lock_file
+    refresh_schedule()
+    scheduler.start()
+    _scheduler_started = True
+
+
+@app.before_request
+def _start_scheduler_once():
+    start_scheduler()
+
+
 @app.route("/")
 def index():
     return render_template("index.html", intervals=sorted(INTERVAL_SECONDS.keys()))
@@ -508,6 +546,5 @@ def browse():
 
 
 if __name__ == "__main__":
-    refresh_schedule()
-    scheduler.start()
+    start_scheduler()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
